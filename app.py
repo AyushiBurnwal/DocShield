@@ -2,7 +2,7 @@ import streamlit as st
 from pathlib import Path
 import tempfile
 
-from extract import extract
+from extractor import extract
 from profiler import profile_dataframe
 from charts import make_charts
 from summariser import summarise
