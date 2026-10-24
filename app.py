@@ -107,12 +107,15 @@ if uploaded_file:
     # 5. SENSITIVE DATA
     # -------------------------
     st.header("5. Sensitive Data Detection")
-
     findings = detect(result)
+    if findings:
+        st.success(f"Found {len(findings)} potential sensitive items.")
 
-    st.write(
-        detection_summary(findings)
-    )
+        st.dataframe(findings)
+        st.write("Detection Summary:")
+        st.json(detection_summary(findings))
+    else:
+        st.info("No sensitive information was detected.")
 
     # -------------------------
     # 6. ENTITY MAPPING
@@ -121,7 +124,10 @@ if uploaded_file:
 
     entity_map = build_map(findings)
 
-    st.json(entity_map)
+    if entity_map:
+        st.json(entity_map)
+    else:
+        st.info("No entities were found to map.")
 
     # -------------------------
     # 7. PDF REDACTION
