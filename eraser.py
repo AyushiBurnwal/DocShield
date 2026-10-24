@@ -1,185 +1,256 @@
-# eraser.py
+import pandas as pd
+import plotly.express as px
+def get_numeric_columns(df):
 
-from pathlib import Path
+    if df is None or df.empty:
+        return []
 
-import fitz
+    return df.select_dtypes(
+        include="number"
+    ).columns.tolist()
 
 
-# ============================================================
-# REDACT PDF
-# ============================================================
+def get_text_columns(df):
 
-def redact_pdf(
-    input_pdf,
-    output_pdf,
-    findings
-):
+    if df is None or df.empty:
+        return []
 
-    """
-    Redact detected sensitive values from a PDF.
+    return df.select_dtypes(
+        include=["object", "string"]
+    ).columns.tolist()
 
-    Parameters
-    ----------
-    input_pdf:
-        Original PDF path.
 
-    output_pdf:
-        Output/redacted PDF path.
+def get_date_columns(df):
 
-    findings:
-        List returned by detector.detect().
-    """
+    if df is None or df.empty:
+        return []
 
-    input_pdf = Path(
-        str(input_pdf)
-        .strip()
-        .strip('"')
-        .strip("'")
-    )
+    date_columns = []
 
-    output_pdf = Path(
-        str(output_pdf)
-        .strip()
-        .strip('"')
-        .strip("'")
-    )
+    for column in df.columns:
 
-    if not input_pdf.exists():
-
-        raise FileNotFoundError(
-            f"Input PDF not found: {input_pdf}"
-        )
-
-    if not findings:
-
-        # No sensitive data detected.
-        # Save a copy so the pipeline still works.
-        document = fitz.open(
-            str(input_pdf)
-        )
-
-        document.save(
-            str(output_pdf)
-        )
-
-        document.close()
-
-        return str(output_pdf)
-
-    # --------------------------------------------------------
-    # Open PDF
-    # --------------------------------------------------------
-
-    document = fitz.open(
-        str(input_pdf)
-    )
-
-    # --------------------------------------------------------
-    # Process findings
-    # --------------------------------------------------------
-
-    for finding in findings:
-
-        page_number = finding.get(
-            "page"
-        )
-
-        value = finding.get(
-            "value"
-        )
-
-        if not value:
+        if pd.api.types.is_datetime64_any_dtype(
+            df[column]
+        ):
+            date_columns.append(column)
             continue
 
-        if page_number is None:
-            continue
+        if df[column].dtype == "object":
 
-        # detector uses page numbers starting at 1
-        page_index = page_number - 1
-
-        if page_index < 0:
-            continue
-
-        if page_index >= len(document):
-            continue
-
-        page = document[
-            page_index
-        ]
-
-        # ----------------------------------------------------
-        # Search exact detected value
-        # ----------------------------------------------------
-
-        try:
-
-            rectangles = page.search_for(
-                str(value)
+            converted = pd.to_datetime(
+                df[column],
+                errors="coerce"
             )
 
-        except Exception:
+            if converted.notna().mean() >= 0.7:
+                date_columns.append(column)
 
-            rectangles = []
+    return date_columns
+def bar_chart(df):
 
-        # ----------------------------------------------------
-        # Add redaction areas
-        # ----------------------------------------------------
+    numeric = get_numeric_columns(df)
+    text = get_text_columns(df)
 
-        for rectangle in rectangles:
+    if not numeric or not text:
+        return None
 
-            page.add_redact_annot(
-                rectangle,
-                fill=(0, 0, 0)
-            )
+    x_column = text[0]
+    y_column = numeric[0]
 
-    # --------------------------------------------------------
-    # Apply redactions
-    # --------------------------------------------------------
+    chart_df = df[
+        [x_column, y_column]
+    ].dropna()
 
-    for page in document:
+    if chart_df.empty:
+        return None
 
-        page.apply_redactions()
-
-    # --------------------------------------------------------
-    # Save
-    # --------------------------------------------------------
-
-    document.save(
-        str(output_pdf)
+    chart_df = (
+        chart_df
+        .groupby(
+            x_column,
+            as_index=False
+        )[y_column]
+        .sum()
     )
 
-    document.close()
-
-    return str(output_pdf)
-
-
-# ============================================================
-# SIMPLE REDACTION FUNCTION
-# ============================================================
-
-def erase(
-    input_pdf,
-    output_pdf,
-    findings
-):
-
-    """
-    Alias for redact_pdf().
-    """
-
-    return redact_pdf(
-        input_pdf,
-        output_pdf,
-        findings
+    chart_df = chart_df.nlargest(
+        20,
+        y_column
     )
 
+    return px.bar(
+        chart_df,
+        x=x_column,
+        y=y_column,
+        title=f"{y_column} by {x_column}"
+    )
+def line_chart(df):
 
-# ============================================================
-# TEST
-# ============================================================
+    numeric = get_numeric_columns(df)
+    date_columns = get_date_columns(df)
 
-if __name__ == "__main__":
+    if not numeric or not date_columns:
+        return None
 
-    print(
-        "eraser.py loaded successfully."
+    date_column = date_columns[0]
+    value_column = numeric[0]
+
+    chart_df = df[
+        [date_column, value_column]
+    ].copy()
+
+    chart_df[date_column] = pd.to_datetime(
+        chart_df[date_column],
+        errors="coerce"
+    )
+
+    chart_df[value_column] = pd.to_numeric(
+        chart_df[value_column],
+        errors="coerce"
+    )
+
+    chart_df = chart_df.dropna()
+
+    if chart_df.empty:
+        return None
+
+    chart_df = (
+        chart_df
+        .groupby(
+            date_column,
+            as_index=False
+        )[value_column]
+        .sum()
+        .sort_values(date_column)
+    )
+
+    return px.line(
+        chart_df,
+        x=date_column,
+        y=value_column,
+        markers=True,
+        title=f"{value_column} over time"
+    )
+def pie_chart(df):
+
+    numeric = get_numeric_columns(df)
+    text = get_text_columns(df)
+
+    if not numeric or not text:
+        return None
+
+    category_column = text[0]
+    value_column = numeric[0]
+
+    chart_df = df[
+        [category_column, value_column]
+    ].dropna()
+
+    if chart_df.empty:
+        return None
+
+    chart_df = (
+        chart_df
+        .groupby(
+            category_column,
+            as_index=False
+        )[value_column]
+        .sum()
+    )
+
+    if len(chart_df) < 2:
+        return None
+
+    if len(chart_df) > 10:
+
+        chart_df = chart_df.nlargest(
+            10,
+            value_column
+        )
+
+    return px.pie(
+        chart_df,
+        names=category_column,
+        values=value_column,
+        title=f"{value_column} Distribution"
+    )
+def scatter_chart(df):
+
+    numeric = get_numeric_columns(df)
+
+    if len(numeric) < 2:
+        return None
+
+    x_column = numeric[0]
+    y_column = numeric[1]
+
+    chart_df = df[
+        [x_column, y_column]
+    ].copy()
+
+    chart_df[x_column] = pd.to_numeric(
+        chart_df[x_column],
+        errors="coerce"
+    )
+
+    chart_df[y_column] = pd.to_numeric(
+        chart_df[y_column],
+        errors="coerce"
+    )
+
+    chart_df = chart_df.dropna()
+
+    if chart_df.empty:
+        return None
+
+    figure = px.scatter(
+        chart_df,
+        x=x_column,
+        y=y_column,
+        title=f"{y_column} vs {x_column}"
+    )
+
+    # Connect the points with a line
+    figure.update_traces(
+        mode="lines+markers"
+    )
+
+    return figure
+def make_charts(df):
+
+    charts = {}
+
+    if df is None or df.empty:
+        return charts
+
+    bar = bar_chart(df)
+
+    if bar is not None:
+        charts["Bar Chart"] = bar
+
+    line = line_chart(df)
+
+    if line is not None:
+        charts["Line Chart"] = line
+
+    pie = pie_chart(df)
+
+    if pie is not None:
+        charts["Pie Chart"] = pie
+
+    scatter = scatter_chart(df)
+
+    if scatter is not None:
+        charts["Scatter Chart"] = scatter
+
+    return charts
+def make_chart(df):
+
+    charts = make_charts(df)
+
+    if not charts:
+        return None
+
+    return next(
+        iter(charts.values())
     )
