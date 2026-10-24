@@ -84,28 +84,27 @@ def bar_chart(df):
         y=y_column,
         title=f"{y_column} by {x_column}"
     )
+
 def line_chart(df):
 
     numeric = get_numeric_columns(df)
-    date_columns = get_date_columns(df)
+    text = get_text_columns(df)
 
-    if not numeric or not date_columns:
+    if not numeric or not text:
         return None
 
-    date_column = date_columns[0]
-    value_column = numeric[0]
+    # Use the first text column and the Commission column
+    x_column = text[0]
 
-    chart_df = df[
-        [date_column, value_column]
-    ].copy()
+    if "Commission" in df.columns:
+        y_column = "Commission"
+    else:
+        y_column = numeric[-1]
 
-    chart_df[date_column] = pd.to_datetime(
-        chart_df[date_column],
-        errors="coerce"
-    )
+    chart_df = df[[x_column, y_column]].copy()
 
-    chart_df[value_column] = pd.to_numeric(
-        chart_df[value_column],
+    chart_df[y_column] = pd.to_numeric(
+        chart_df[y_column],
         errors="coerce"
     )
 
@@ -114,23 +113,21 @@ def line_chart(df):
     if chart_df.empty:
         return None
 
-    chart_df = (
-        chart_df
-        .groupby(
-            date_column,
-            as_index=False
-        )[value_column]
-        .sum()
-        .sort_values(date_column)
+    # Preserve the original PDF row order
+    figure = px.line(
+        chart_df,
+        x=x_column,
+        y=y_column,
+        markers=True,
+        title=f"{y_column} by {x_column}"
     )
 
-    return px.line(
-        chart_df,
-        x=date_column,
-        y=value_column,
-        markers=True,
-        title=f"{value_column} over time"
+    figure.update_layout(
+        xaxis_title=x_column,
+        yaxis_title=y_column
     )
+
+    return figure
 def pie_chart(df):
 
     numeric = get_numeric_columns(df)
@@ -216,6 +213,7 @@ def scatter_chart(df):
     )
 
     return figure
+
 def make_charts(df):
 
     charts = {}
@@ -224,24 +222,16 @@ def make_charts(df):
         return charts
 
     bar = bar_chart(df)
-
     if bar is not None:
         charts["Bar Chart"] = bar
 
     line = line_chart(df)
-
     if line is not None:
         charts["Line Chart"] = line
 
     pie = pie_chart(df)
-
     if pie is not None:
         charts["Pie Chart"] = pie
-
-    scatter = scatter_chart(df)
-
-    if scatter is not None:
-        charts["Scatter Chart"] = scatter
 
     return charts
 def make_chart(df):
