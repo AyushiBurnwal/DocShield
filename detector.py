@@ -1,39 +1,20 @@
-# detector.py
-
 import re
-
-try:
-    import spacy
-except ImportError:
-    spacy = None
-
-
-# ============================================================
-# REGEX PATTERNS
-# ============================================================
-
 PATTERNS = {
 
     "EMAIL": re.compile(
-        r"\b[A-Za-z0-9._%+-]+@"
-        r"[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
+        r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
     ),
 
     "PHONE": re.compile(
-        r"(?<!\d)"
-        r"(?:\+91[\s-]?)?"
-        r"[6-9]\d{9}"
-        r"(?!\d)"
+        r"(?<!\d)(?:\+91[-\s]?)?[6-9]\d{9}(?!\d)"
     ),
 
     "AADHAAR": re.compile(
-        r"(?<!\d)"
-        r"\d{4}[\s-]\d{4}[\s-]\d{4}"
-        r"(?!\d)"
+        r"(?<!\d)\d{4}[-\s]\d{4}[-\s]\d{4}(?!\d)"
     ),
 
     "PAN": re.compile(
-        r"\b[A-Z]{5}\d{4}[A-Z]\b"
+        r"\b[A-Z]{5}[0-9]{4}[A-Z]\b"
     ),
 
     "IP_ADDRESS": re.compile(
@@ -45,53 +26,10 @@ PATTERNS = {
     ),
 
     "CREDIT_CARD": re.compile(
-        r"\b(?:\d{4}[\s-]?){3}\d{4}\b"
+        r"\b(?:\d[ -]*?){13,19}\b"
     )
 }
-
-
-# ============================================================
-# SPAcy MODEL
-# ============================================================
-
-_nlp = None
-
-
-def load_spacy_model():
-
-    global _nlp
-
-    if _nlp is not None:
-        return _nlp
-
-    if spacy is None:
-        return None
-
-    models = [
-        "en_core_web_sm"
-    ]
-
-    for model in models:
-
-        try:
-
-            _nlp = spacy.load(
-                model
-            )
-
-            return _nlp
-
-        except Exception:
-            continue
-
-    return None
-
-
-# ============================================================
-# REGEX DETECTION
-# ============================================================
-
-def detect_regex(text):
+def detect_text(text, page_number):
 
     findings = []
 
@@ -105,205 +43,124 @@ def detect_regex(text):
             findings.append({
                 "type": entity_type,
                 "value": match.group(),
+                "page": page_number,
                 "start": match.start(),
                 "end": match.end(),
                 "method": "regex"
             })
 
     return findings
-
-
-# ============================================================
-# spaCy DETECTION
-# ============================================================
-
-def detect_spacy(text):
+def detect_names_from_table(result):
 
     findings = []
 
-    if not text:
+    df = result.primary_table
+
+    if df is None or df.empty:
         return findings
 
-    nlp = load_spacy_model()
+    for column in df.columns:
 
-    if nlp is None:
-        return findings
+        column_name = str(column).lower()
+        if (
+            "name" not in column_name
+            and "person" not in column_name
+            and "employee" not in column_name
+            and "customer" not in column_name
+            and "rep" not in column_name
+        ):
+            continue
 
-    try:
+        for value in df[column].dropna():
 
-        doc = nlp(text)
+            value = str(value).strip()
 
-        allowed_entities = {
-            "PERSON",
-            "ORG",
-            "GPE",
-            "LOC"
-        }
+            if not value:
+                continue
 
-        for entity in doc.ents:
-
-            if entity.label_ in allowed_entities:
-
-                findings.append({
-                    "type": entity.label_,
-                    "value": entity.text,
-                    "start": entity.start_char,
-                    "end": entity.end_char,
-                    "method": "spacy"
-                })
-
-    except Exception:
-        pass
+            findings.append({
+                "type": "PERSON",
+                "value": value,
+                "page": 1,
+                "start": None,
+                "end": None,
+                "method": "table_column"
+            })
 
     return findings
-
-
-# ============================================================
-# REMOVE DUPLICATES
-# ============================================================
-
-def remove_duplicate_findings(findings):
-
-    unique = []
-
-    seen = set()
-
-    for finding in findings:
-
-        key = (
-            finding["type"],
-            finding["value"],
-            finding["start"],
-            finding["end"]
-        )
-
-        if key not in seen:
-
-            seen.add(key)
-
-            unique.append(
-                finding
-            )
-
-    return unique
-
-
-# ============================================================
-# MAIN TEXT DETECTOR
-# ============================================================
-
-def detect_text(text):
-
-    if not text:
-
-        return []
-
-    findings = []
-
-    findings.extend(
-        detect_regex(text)
-    )
-
-    findings.extend(
-        detect_spacy(text)
-    )
-
-    findings = remove_duplicate_findings(
-        findings
-    )
-
-    findings.sort(
-        key=lambda x: x["start"]
-    )
-
-    return findings
-
-
-# ============================================================
-# DETECT PDF RESULT
-# ============================================================
-
 def detect(extraction_result):
 
-    """
-    Detect sensitive information from
-    extract.py's ExtractionResult.
-    """
-
-    all_findings = []
-
-    if extraction_result is None:
-        return []
-
+    findings = []
     for page_number, text in enumerate(
         extraction_result.text_by_page,
         start=1
     ):
 
-        page_findings = detect_text(
-            text
+        findings.extend(
+            detect_text(
+                text,
+                page_number
+            )
+        )
+    findings.extend(
+        detect_names_from_table(
+            extraction_result
+        )
+    )
+    unique_findings = []
+    seen = set()
+
+    for finding in findings:
+
+        key = (
+            finding.get("type"),
+            finding.get("value"),
+            finding.get("page")
         )
 
-        for finding in page_findings:
+        if key not in seen:
 
-            finding["page"] = page_number
-
-            all_findings.append(
+            seen.add(key)
+            unique_findings.append(
                 finding
             )
 
-    return all_findings
-
-
-# ============================================================
-# SUMMARY
-# ============================================================
-
+    return unique_findings
 def detection_summary(findings):
+
+    if not findings:
+        return {
+            "total_findings": 0,
+            "message": "No sensitive information detected."
+        }
 
     summary = {}
 
     for finding in findings:
 
-        entity_type = finding["type"]
+        entity_type = finding.get(
+            "type",
+            "UNKNOWN"
+        )
 
         summary[entity_type] = (
-            summary.get(
-                entity_type,
-                0
-            ) + 1
+            summary.get(entity_type, 0) + 1
         )
 
-    return summary
-
-
-# ============================================================
-# TEST
-# ============================================================
-
+    return {
+        "total_findings": len(findings),
+        "by_type": summary
+    }
 if __name__ == "__main__":
 
-    text = """
-    Customer: Rahul Sharma
-    Email: rahul@example.com
-    Phone: +919876543210
-    PAN: ABCDE1234F
+    test_text = """
+    Contact John at john@example.com
+    or call 9876543210.
     """
 
-    findings = detect_text(text)
-
-    for finding in findings:
-
-        print(
-            finding
-        )
-
     print(
-        "\nSummary:"
-    )
-
-    print(
-        detection_summary(
-            findings
+        detect_text(
+            test_text,
+            1
         )
     )
