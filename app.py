@@ -113,7 +113,11 @@ if uploaded_file:
 
         st.dataframe(findings)
         st.write("Detection Summary:")
-        st.json(detection_summary(findings))
+        summary = detection_summary(findings)
+        st.write("Total Findings:", summary["total_findings"])
+        st.write("Findings by Type:")
+        for entity_type, count in summary.get("by_type", {}).items():
+            st.write(f"- {entity_type}: {count}")
     else:
         st.info("No sensitive information was detected.")
 
