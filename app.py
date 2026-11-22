@@ -9,7 +9,13 @@ from summariser import summarise
 from detector import detect, detection_summary
 from mapper import build_map, build_redaction_targets
 from eraser import redact_pdf
-
+from mapper import (
+    build_map,
+    build_category_map,
+    build_redaction_targets,
+    map_summary,
+    category_summary
+)
 
 st.set_page_config(
     page_title="DocShield",
