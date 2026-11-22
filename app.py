@@ -109,35 +109,70 @@ if uploaded_file:
 
         st.write(summary)
 
+    
     # -------------------------
-    # 5. SENSITIVE DATA
+    # 5. SENSITIVE DATA DETECTION
     # -------------------------
-    st.header("5. Sensitive Data Detection")
-    findings = detect(result)
-    if findings:
-        st.success(f"Found {len(findings)} potential sensitive items.")
 
-        st.dataframe(findings)
-        st.write("Detection Summary:")
+    st.header("5. Sensitive Data Detection")
+
+    findings = detect(result)
+
+    if findings:
+
+        st.success(
+            f"Found {len(findings)} potential sensitive items."
+        )
+
+        st.subheader("All Detected Information")
+        st.dataframe(findings, use_container_width=True)
+
         summary = detection_summary(findings)
-        st.write("Total Findings:", summary["total_findings"])
-        st.write("Findings by Type:")
-        for entity_type, count in summary.get("by_type", {}).items():
-            st.write(f"- {entity_type}: {count}")
+
+        st.metric(
+            "Total Findings",
+            summary["total_findings"]
+        )
+
+        st.subheader("Findings by DPDP Category")
+
+        categories = category_summary(findings)
+
+        if categories:
+            st.bar_chart(categories)
+
+        st.subheader("Findings by Detection Type")
+
+        types = map_summary(findings)
+
+        if types:
+            st.bar_chart(types)
+
     else:
+
         st.info("No sensitive information was detected.")
 
     # -------------------------
     # 6. ENTITY MAPPING
     # -------------------------
+
     st.header("6. Entity Mapping")
 
     entity_map = build_map(findings)
+    dpdp_map = build_category_map(findings)
 
     if entity_map:
+
+        st.subheader("Mapping by Entity Type")
         st.json(entity_map)
+
+        st.subheader("Mapping by DPDP Category")
+        st.json(dpdp_map)
+
     else:
+
         st.info("No entities were found to map.")
+
 
     # -------------------------
     # 7. PDF REDACTION
